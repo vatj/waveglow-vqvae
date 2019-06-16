@@ -29,19 +29,19 @@ def vqvae(x, hparams):
     x = tf.cast(x, tf.float32)
     means = tf.cast(means, tf.float32)
     x_sg = tf.stop_gradient(x)
-    x_norm_sq = tf.reduce_sum(tf.square(x_sg), axis=-1, keepdims=True) # [b, 1]
-    means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True) # [V, 1]
+    x_norm_sq = tf.reduce_sum(input_tensor=tf.square(x_sg), axis=-1, keepdims=True) # [b, 1]
+    means_norm_sq = tf.reduce_sum(input_tensor=tf.square(means), axis=-1, keepdims=True) # [V, 1]
     scalar_prod = tf.matmul(x_sg, means, transpose_b=True) # [b, V]
-    dist_sq = x_norm_sq + tf.transpose(means_norm_sq) - 2 * scalar_prod # [b, V]
+    dist_sq = x_norm_sq + tf.transpose(a=means_norm_sq) - 2 * scalar_prod # [b, V]
 
-    tf.summary.histogram("dist_sq", dist_sq)
-    tf.summary.histogram("len_sq", means_norm_sq)
+    tf.compat.v1.summary.histogram("dist_sq", dist_sq)
+    tf.compat.v1.summary.histogram("len_sq", means_norm_sq)
     return tf.cast(dist_sq, x.dtype.base_dtype)
   dist_sq = _square_distance(x, means)
 
   q = tf.stop_gradient(tf.nn.softmax(-.5 * dist_sq))
 
-  discrete = tf.one_hot(tf.argmax(-dist_sq, axis=-1), depth=bottleneck_size, dtype=means.dtype.base_dtype)
+  discrete = tf.one_hot(tf.argmax(input=-dist_sq, axis=-1), depth=bottleneck_size, dtype=means.dtype.base_dtype)
   dense = tf.matmul(discrete, means)
   if hparams.mode == tf.estimator.ModeKeys.TRAIN:
     dense = dense + x - tf.stop_gradient(x)
@@ -51,8 +51,8 @@ def vqvae(x, hparams):
     dense = tf.cast(dense, tf.float32)
     dist_sq = tf.cast(dist_sq, tf.float32)
     q = tf.cast(q, tf.float32)
-    disc_loss = tf.reduce_mean(tf.reduce_sum(tf.square(x - tf.stop_gradient(dense)), -1))
-    em_loss = -tf.reduce_mean(tf.reduce_sum(-.5 * dist_sq * q, -1)) # M-step
+    disc_loss = tf.reduce_mean(input_tensor=tf.reduce_sum(input_tensor=tf.square(x - tf.stop_gradient(dense)), axis=-1))
+    em_loss = -tf.reduce_mean(input_tensor=tf.reduce_sum(input_tensor=-.5 * dist_sq * q, axis=-1)) # M-step
     return disc_loss, em_loss
   disc_loss, em_loss = _get_losses(x, dense, dist_sq, q)
 
@@ -79,7 +79,7 @@ def discrete_bottleneck(x, hparams):
   bottleneck_size = 2 ** hparams.bottleneck_bits
   discrete_channels = hparams.bottleneck_bits * hparams.bottleneck_dims_per_bit
 
-  x = tf.layers.dense(x, discrete_channels)
+  x = tf.compat.v1.layers.dense(x, discrete_channels)
   x_shape = commons.shape_list(x)
   x = tf.reshape(x, [-1, discrete_channels])
 
@@ -91,13 +91,13 @@ def discrete_bottleneck(x, hparams):
 
 
 def mel_conditioner(x, hparams, infer=False):
-  with tf.variable_scope("mel_cond") as scope:
+  with tf.compat.v1.variable_scope("mel_cond") as scope:
     if not hparams.use_cond_wn:
       scope._custom_getter = commons.float32_variable_storage_getter
     if not hparams.use_vq:
       x = tf.expand_dims(x, 2)
       for s in hparams.upsample_scales:
-        x = tf.layers.conv2d_transpose(
+        x = tf.compat.v1.layers.conv2d_transpose(
             x,
             filters=hparams.hidden_channels,
             kernel_size=(s * 4, 1),
@@ -110,7 +110,7 @@ def mel_conditioner(x, hparams, infer=False):
       # Run compression by strided convs.
       e = x
       for s in hparams.upsample_scales:
-        e = tf.layers.conv1d(
+        e = tf.compat.v1.layers.conv1d(
             e,
             hparams.hidden_channels,
             s * 2,
@@ -122,14 +122,14 @@ def mel_conditioner(x, hparams, infer=False):
 
       # summary
       if not infer:
-        tf.summary.image("seq_codes", tf.expand_dims(tf.cast(latents_discrete * 255, tf.uint8), -1), max_outputs=1)
-        tf.summary.histogram("codes", tf.argmax(latents_discrete, -1))
+        tf.compat.v1.summary.image("seq_codes", tf.expand_dims(tf.cast(latents_discrete * 255, tf.uint8), -1), max_outputs=1)
+        tf.compat.v1.summary.histogram("codes", tf.argmax(input=latents_discrete, axis=-1))
 
       # decode
       d = latents_dense
       d = tf.expand_dims(d, 2)
       for s in hparams.upsample_scales:
-        d = tf.layers.conv2d_transpose(
+        d = tf.compat.v1.layers.conv2d_transpose(
             d,
             filters=hparams.hidden_channels,
             kernel_size=(s * 4, 1),
@@ -145,7 +145,7 @@ def mel_conditioner(x, hparams, infer=False):
 
 
 def wav_conditioner(x, hparams, infer=False):
-  with tf.variable_scope("wav_cond") as scope:
+  with tf.compat.v1.variable_scope("wav_cond") as scope:
     if not hparams.use_cond_wn:
       scope._custom_getter = commons.float32_variable_storage_getter
     if not hparams.use_vq:
@@ -154,7 +154,7 @@ def wav_conditioner(x, hparams, infer=False):
       # Run compression by strided convs.
       e = x
       for s in hparams.upsample_scales:
-        e = tf.layers.conv1d(
+        e = tf.compat.v1.layers.conv1d(
             e,
             hparams.hidden_channels,
             s * 4,
@@ -167,14 +167,14 @@ def wav_conditioner(x, hparams, infer=False):
 
       # summary
       if not infer:
-        tf.summary.image("seq_codes", tf.expand_dims(tf.cast(latents_discrete * 255, tf.uint8), -1), max_outputs=1)
-        tf.summary.histogram("codes", tf.argmax(latents_discrete, -1))
+        tf.compat.v1.summary.image("seq_codes", tf.expand_dims(tf.cast(latents_discrete * 255, tf.uint8), -1), max_outputs=1)
+        tf.compat.v1.summary.histogram("codes", tf.argmax(input=latents_discrete, axis=-1))
 
       # decode
       d = latents_dense
       d = tf.expand_dims(d, 2)
       for s in reversed(hparams.upsample_scales):
-        d = tf.layers.conv2d_transpose(
+        d = tf.compat.v1.layers.conv2d_transpose(
             d,
             filters=hparams.hidden_channels,
             kernel_size=(s * 4, 1),
@@ -197,15 +197,15 @@ class Invertible1x1Conv():
   """
   def __init__(self, c, dtype="float32", name=None):
     self.name = name
-    with tf.variable_scope(self.name, default_name="inv1x1conv") as self.scope:
+    with tf.compat.v1.variable_scope(self.name, default_name="inv1x1conv") as self.scope:
       self.W = commons.get_variable(
           name="w",
           shape=[c, c],
-          initializer=tf.initializers.orthogonal(),
+          initializer=tf.compat.v1.initializers.orthogonal(),
           dtype=dtype)
 
   def __call__(self, z, reverse=False):
-    with tf.variable_scope(self.scope):
+    with tf.compat.v1.variable_scope(self.scope):
       # shape
       batch_size, n_of_groups, group_size = commons.shape_list(z)
 
@@ -232,7 +232,7 @@ class WN():
   """
   def __init__(self, n_in_channels, n_layers, n_channels, kernel_size, global_cond=False, name=None):
     self.name = name
-    with tf.variable_scope(self.name, default_name="WN") as self.scope:
+    with tf.compat.v1.variable_scope(self.name, default_name="WN") as self.scope:
       assert(kernel_size % 2 == 1)
       assert(n_channels % 2 == 0)
       self.n_layers = n_layers
@@ -243,7 +243,7 @@ class WN():
       if global_cond:
         self.global_layers = []
 
-      start = tf.layers.Dense(n_channels, name="start")
+      start = tf.compat.v1.layers.Dense(n_channels, name="start")
       self.start = start
 
       # Initializing last layer to 0 makes the affine coupling layers
@@ -251,14 +251,14 @@ class WN():
       class EndLayer:
         def __init__(self, name=None):
           self.name = name
-          with tf.variable_scope(self.name, default_name="end") as self.scope:
+          with tf.compat.v1.variable_scope(self.name, default_name="end") as self.scope:
             self.scope._custom_getter = commons.float32_variable_storage_getter
-            self.layer = tf.layers.Dense(2 * n_in_channels,
-                kernel_initializer=tf.initializers.zeros(),
-                bias_initializer=tf.initializers.zeros(),
+            self.layer = tf.compat.v1.layers.Dense(2 * n_in_channels,
+                kernel_initializer=tf.compat.v1.initializers.zeros(),
+                bias_initializer=tf.compat.v1.initializers.zeros(),
                 name="end")
         def __call__(self, x):
-          with tf.variable_scope(self.scope):
+          with tf.compat.v1.variable_scope(self.scope):
             x = self.layer(x)
             return x
       end = EndLayer(name="end")
@@ -266,14 +266,14 @@ class WN():
 
       for i in range(n_layers):
         dilation_rate = 2 ** i
-        in_layer = tf.layers.Conv1D(2 * n_channels, kernel_size,
+        in_layer = tf.compat.v1.layers.Conv1D(2 * n_channels, kernel_size,
             dilation_rate=dilation_rate, padding="same", name="conv_%d" % i)
         self.in_layers.append(in_layer)
 
-        cond_layer = tf.layers.Dense(2 * n_channels, name="cond_%d" % i)
+        cond_layer = tf.compat.v1.layers.Dense(2 * n_channels, name="cond_%d" % i)
         self.cond_layers.append(cond_layer)
         if global_cond:
-          global_layer = tf.layers.Dense(2 * n_channels, name="global_%d" % i)
+          global_layer = tf.compat.v1.layers.Dense(2 * n_channels, name="global_%d" % i)
           self.global_layers.append(global_layer)
 
         # last one is not necessary
@@ -281,11 +281,11 @@ class WN():
           res_skip_channels = 2 * n_channels
         else:
           res_skip_channels = n_channels
-        res_skip_layer = tf.layers.Dense(res_skip_channels, name="res_skip_%d" % i)
+        res_skip_layer = tf.compat.v1.layers.Dense(res_skip_channels, name="res_skip_%d" % i)
         self.res_skip_layers.append(res_skip_layer)
 
   def __call__(self, forward_input):
-    with tf.variable_scope(self.scope):
+    with tf.compat.v1.variable_scope(self.scope):
       audio, spect, g_expand = forward_input
       audio = self.start(audio)
 
@@ -316,7 +316,7 @@ class WN():
 
 class WaveGlow():
   def __init__(self, hparams, mode):
-    with tf.variable_scope("WaveGlow") as self.scope:
+    with tf.compat.v1.variable_scope("WaveGlow") as self.scope:
       self.hparams = copy.copy(hparams)
       self.hparams.mode = mode
       if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
@@ -341,22 +341,22 @@ class WaveGlow():
         def __init__(self, n_channels, global_cond=None, name=None):
           self.name = name
           self.n_channels = n_channels
-          with tf.variable_scope(self.name, default_name="FiLM") as self.scope:
+          with tf.compat.v1.variable_scope(self.name, default_name="FiLM") as self.scope:
             self.scope._custom_getter = commons.float32_variable_storage_getter
-            self.cond_layer = tf.layers.Conv1D(2 * n_channels, 3,
+            self.cond_layer = tf.compat.v1.layers.Conv1D(2 * n_channels, 3,
                 padding="same",
-                kernel_initializer=tf.initializers.zeros(),
-                bias_initializer=tf.initializers.zeros(),
+                kernel_initializer=tf.compat.v1.initializers.zeros(),
+                bias_initializer=tf.compat.v1.initializers.zeros(),
                 activation=act_fn(hparams.act_name))
             if global_cond is not None:
-              self.global_layer = tf.layers.Conv1D(2 * n_channels, 1,
+              self.global_layer = tf.compat.v1.layers.Conv1D(2 * n_channels, 1,
                   padding="same",
-                  kernel_initializer=tf.initializers.zeros(),
-                  bias_initializer=tf.initializers.zeros(),
+                  kernel_initializer=tf.compat.v1.initializers.zeros(),
+                  bias_initializer=tf.compat.v1.initializers.zeros(),
                   activation=act_fn(hparams.act_name))
         def __call__(self, forward_input):
           c, g = forward_input
-          with tf.variable_scope(self.scope):
+          with tf.compat.v1.variable_scope(self.scope):
             x = self.cond_layer(c)
             if g is not None:
               x = x + self.global_layer(g)
@@ -378,7 +378,7 @@ class WaveGlow():
       self.n_remaining_channels = n_remaining_channels  # Useful during inference
 
   def body(self, features):
-    with tf.variable_scope(self.scope, reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(self.scope, reuse=tf.compat.v1.AUTO_REUSE):
       hparams = self.hparams
       x, c, g = features["x"], features["c"], features["g"]
       c_expand, extra_losses = self.local_conditioner(c)
@@ -425,7 +425,7 @@ class WaveGlow():
       return outputs, losses
 
   def infer(self, features, sigma=1.0):
-    with tf.variable_scope(self.scope, reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(self.scope, reuse=tf.compat.v1.AUTO_REUSE):
       hparams = self.hparams
       c, g = features["c"], features["g"]
       c_expand, extra_losses = self.local_conditioner(c, infer=True)
@@ -474,18 +474,18 @@ class WaveGlow():
     if hparams.global_condition == None:
       return None
     else:
-      with tf.variable_scope("global_cond"):
+      with tf.compat.v1.variable_scope("global_cond"):
         s_emb = commons.get_variable(
             name="speaker_emb",
             shape=[hparams.n_speakers, hparams.emb_channels],
             dtype=hparams.ftype)
-        x = tf.nn.embedding_lookup(s_emb, g) # [b, dim]
+        x = tf.nn.embedding_lookup(params=s_emb, ids=g) # [b, dim]
         x = tf.expand_dims(x, 1) # [b, 1, dim]
         return x
 
 
 def compute_waveglow_loss(model_output, sigma=1.0):
-  with tf.name_scope("compute_loss"):
+  with tf.compat.v1.name_scope("compute_loss"):
     z, log_s_list, log_det_W_list = model_output
     # mixed precision training support
     if z.dtype.base_dtype != tf.float32:
@@ -495,9 +495,9 @@ def compute_waveglow_loss(model_output, sigma=1.0):
 
     for i, log_s in enumerate(log_s_list):
       if i == 0:
-        log_s_total = tf.reduce_sum(log_s)
+        log_s_total = tf.reduce_sum(input_tensor=log_s)
       else:
-        log_s_total += tf.reduce_sum(log_s)
+        log_s_total += tf.reduce_sum(input_tensor=log_s)
 
     for i, log_det_W in enumerate(log_det_W_list):
       if i == 0:
@@ -505,17 +505,17 @@ def compute_waveglow_loss(model_output, sigma=1.0):
       else:
         log_det_W_total += log_det_W
 
-    loss = tf.reduce_sum(z * z) / (2. * tf.math.square(sigma))
+    loss = tf.reduce_sum(input_tensor=z * z) / (2. * tf.math.square(sigma))
     loss -= log_s_total
     loss -= log_det_W_total
-    return loss / tf.cast(tf.reduce_prod(commons.shape_list(z)), loss.dtype.base_dtype)
+    return loss / tf.cast(tf.reduce_prod(input_tensor=commons.shape_list(z)), loss.dtype.base_dtype)
 
 
 def build_model_fn(hparams):
   def model_fn(features, labels, mode):
-    with tf.variable_scope("model", 
+    with tf.compat.v1.variable_scope("model", 
         custom_getter=commons.weight_norm_getter,
-        initializer=tf.initializers.glorot_uniform()):
+        initializer=tf.compat.v1.initializers.glorot_uniform()):
       # Input Preparation
       x_org = features["wav"]
       x = features["wav"]
@@ -542,7 +542,7 @@ def build_model_fn(hparams):
         # losses
         loss = 0.
         for k, l in losses.items():
-          tf.summary.scalar(k, l)
+          tf.compat.v1.summary.scalar(k, l)
           loss += l
       else:
         predictions = model.infer(features={"c": c, "g": g}, sigma=hparams.sigma)
@@ -555,14 +555,14 @@ def build_model_fn(hparams):
   
     if mode == tf.estimator.ModeKeys.EVAL:
       #tf.summary.audio("org", features["wav"], hparams.sample_rate, max_outputs=1)
-      tf.summary.audio("gen", tf.cast(predictions, tf.float32), hparams.sample_rate, max_outputs=1)
+      tf.compat.v1.summary.audio("gen", tf.cast(predictions, tf.float32), hparams.sample_rate, max_outputs=1)
 
       eval_metrics = None
 
-      eval_summary_hook = tf.train.SummarySaverHook(
+      eval_summary_hook = tf.estimator.SummarySaverHook(
           save_steps=1,
           output_dir= os.path.join(hparams.model_dir, "eval"),
-          summary_op=tf.summary.merge_all())
+          summary_op=tf.compat.v1.summary.merge_all())
       eval_summary_hooks = [eval_summary_hook]
     else:
       eval_metrics = None
@@ -574,6 +574,6 @@ def build_model_fn(hparams):
         loss=loss,
         eval_metric_ops=eval_metrics,
         evaluation_hooks=eval_summary_hooks,
-        scaffold=tf.train.Scaffold(saver=saver),
+        scaffold=tf.compat.v1.train.Scaffold(saver=saver),
         train_op=train_op)
   return model_fn

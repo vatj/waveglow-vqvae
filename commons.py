@@ -59,18 +59,18 @@ def get_variable(name,
   storage_dtype = tf.float32 if trainable else dtype
   if weight_norm:
     dims = list(range(len(shape) - 1))
-    v = tf.get_variable(name + "_v", shape, dtype=storage_dtype,
+    v = tf.compat.v1.get_variable(name + "_v", shape, dtype=storage_dtype,
                              initializer=initializer, regularizer=regularizer,
                              trainable=trainable,
                              *args, **kwargs)
     v = tf.nn.l2_normalize(v, dims)
-    g = tf.get_variable(name + "_g", (shape[-1],), dtype=storage_dtype,
+    g = tf.compat.v1.get_variable(name + "_g", (shape[-1],), dtype=storage_dtype,
                              initializer=initializer, regularizer=regularizer,
                              trainable=trainable,
                              *args, **kwargs)
     variable = g * v
   else:
-    variable = tf.get_variable(name, shape, dtype=storage_dtype,
+    variable = tf.compat.v1.get_variable(name, shape, dtype=storage_dtype,
                              initializer=initializer, regularizer=regularizer,
                              trainable=trainable,
                              *args, **kwargs)
@@ -81,7 +81,7 @@ def get_variable(name,
 
 def shape_list(x):
   """Shape list"""
-  x_shape = tf.shape(x)
+  x_shape = tf.shape(input=x)
   x_get_shape = x.get_shape().as_list()
 
   res = []
@@ -95,26 +95,26 @@ def shape_list(x):
 
 def get_optimizer_fn(hparams):
   if hparams.optimizer == "adam":
-    return lambda lr: tf.train.AdamOptimizer(
+    return lambda lr: tf.compat.v1.train.AdamOptimizer(
           lr, hparams.adam_beta1, hparams.adam_beta2, hparams.adam_epsilon)
   elif hparams.optimizer == "adamax":
     return lambda lr: tf.contrib.opt.AdaMaxOptimizer(
           lr, hparams.adam_beta1, hparams.adam_beta2, hparams.adam_epsilon)
   elif hparams.optimizer == "sgd":
-    return lambda lr: tf.train.GradientDescentOptimizer(lr)
+    return lambda lr: tf.compat.v1.train.GradientDescentOptimizer(lr)
 
   else:
     raise ValueError("Unknown optimizer: {}".format(hparams.optimizer))
 
 
 def noam_learning_rate_decay(learning_rate, global_step, hparams):
-  step = tf.to_float(global_step)
+  step = tf.cast(global_step, dtype=tf.float32)
   return learning_rate * hparams.hidden_size**-0.5 * tf.minimum(
       (step + 1) * hparams.warmup_step**-1.5, (step + 1)**-0.5)
 
 
 def halve_learning_rate_decay(learning_rate, global_step, hparams):
-  step = tf.to_float(global_step)
+  step = tf.cast(global_step, dtype=tf.float32)
   ratio = 2**(-1. * (step // hparams.halve_step))
   return tf.maximum(hparams.min_lr, learning_rate * ratio)
 
@@ -134,12 +134,12 @@ def get_learning_rate_decay_fn(hparams):
 def get_train_op(loss, hparams, name="train"):
   # 0. summary
   summaries = ["loss", "learning_rate", "global_gradient_norm"]
-  global_step = tf.train.get_global_step()
+  global_step = tf.compat.v1.train.get_global_step()
 
-  with tf.variable_scope(name, "OptimizeLoss", [loss, global_step]):
+  with tf.compat.v1.variable_scope(name, "OptimizeLoss", [loss, global_step]):
     # 1. get learning rate
     lr = get_learning_rate_decay_fn(hparams)(hparams.learning_rate, global_step)
-    tf.summary.scalar("learning_rate", lr)
+    tf.compat.v1.summary.scalar("learning_rate", lr)
 
     # 2. create optimizer
     opt = get_optimizer_fn(hparams)(lr)
@@ -149,7 +149,7 @@ def get_train_op(loss, hparams, name="train"):
     # 3. multiply scalar to loss
     loss_scale = float(hparams.loss_scale)
     inv_loss_scale = tf.math.reciprocal(loss_scale)
-    variables = tf.trainable_variables()
+    variables = tf.compat.v1.trainable_variables()
     gradients = opt.compute_gradients(
         loss * loss_scale,
         variables)
@@ -159,25 +159,25 @@ def get_train_op(loss, hparams, name="train"):
     gv = []
     for g, v in gradients:
       if g is not None:
-        g_f = tf.is_finite(g)
-        g = tf.where(g_f,
+        g_f = tf.math.is_finite(g)
+        g = tf.compat.v1.where(g_f,
             g * tf.cast(inv_loss_scale, g.dtype.base_dtype),
             tf.zeros_like(g))
-        num_finite.append(tf.reduce_sum(tf.to_float(g_f)))
-        num_grads.append(tf.reduce_prod(g.get_shape()))
+        num_finite.append(tf.reduce_sum(input_tensor=tf.cast(g_f, dtype=tf.float32)))
+        num_grads.append(tf.reduce_prod(input_tensor=g.get_shape()))
         gv.append((g, v))
       else:
         print("Untrained Trainable Variable: ", v.name)
-    tf.summary.scalar("finite_grad_ratio", tf.reduce_sum(num_finite) / tf.to_float(tf.reduce_sum(num_grads)))
+    tf.compat.v1.summary.scalar("finite_grad_ratio", tf.reduce_sum(input_tensor=num_finite) / tf.cast(tf.reduce_sum(input_tensor=num_grads), dtype=tf.float32))
     gradients = gv
 
-    tf.summary.scalar("global_norm/gradient_norm",
-        tf.global_norm(list(zip(*gradients))[0]))
+    tf.compat.v1.summary.scalar("global_norm/gradient_norm",
+        tf.linalg.global_norm(list(zip(*gradients))[0]))
 
     # 4. clipping gradients
     if hparams.clip_gradients is not None:
       gs, vs = zip(*gradients)
-      gn_inv = tf.rsqrt(tf.reduce_sum([tf.reduce_sum(tf.square(g)) for g in gs]) + 1e-8)
+      gn_inv = tf.math.rsqrt(tf.reduce_sum(input_tensor=[tf.reduce_sum(input_tensor=tf.square(g)) for g in gs]) + 1e-8)
       gs = [g * gn_inv * hparams.clip_gradients for g in gs]
       gradients = list(zip(gs, vs))
 
@@ -202,28 +202,28 @@ def assign_moving_average(variable, value, decay, zero_debias=True, name=None):
   def _zero_debias(unbiased_var, value, decay):
     """Compute the delta required for a debiased Variable.
     """
-    with tf.variable_scope(
+    with tf.compat.v1.variable_scope(
         unbiased_var.op.name, values=[unbiased_var, value, decay]) as scope:
       with tf.init_scope():
-        biased_initializer = tf.zeros_initializer(
+        biased_initializer = tf.compat.v1.zeros_initializer(
             dtype=unbiased_var.dtype)(unbiased_var.get_shape())
-        local_step_initializer = tf.zeros_initializer()
+        local_step_initializer = tf.compat.v1.zeros_initializer()
       def _maybe_get_unique(name):
         """Get name for a unique variable, if not `reuse=True`."""
-        if tf.get_variable_scope().reuse:
+        if tf.compat.v1.get_variable_scope().reuse:
           return name
         vs_vars = [x.op.name for x in
-                   tf.get_variable_scope().global_variables()]
-        full_name = tf.get_variable_scope().name + "/" + name
+                   tf.compat.v1.get_variable_scope().global_variables()]
+        full_name = tf.compat.v1.get_variable_scope().name + "/" + name
         if full_name not in vs_vars: return name
         idx = 1
         while full_name + ("_%d" % idx) in vs_vars:
           idx += 1
         return name + ("_%d" % idx)
-      biased_var = tf.get_variable(
+      biased_var = tf.compat.v1.get_variable(
           _maybe_get_unique("biased"), initializer=biased_initializer,
           trainable=False)
-      local_step = tf.get_variable(
+      local_step = tf.compat.v1.get_variable(
           _maybe_get_unique("local_step"),
           shape=[],
           dtype=unbiased_var.dtype,
@@ -231,7 +231,7 @@ def assign_moving_average(variable, value, decay, zero_debias=True, name=None):
           trainable=False)
 
       # Get an update ops for both shadow variables.
-      update_biased = tf.assign_sub(biased_var,
+      update_biased = tf.compat.v1.assign_sub(biased_var,
                                            (biased_var - value) * decay,
                                            name=scope.name)
       update_local_step = local_step.assign_add(1)
@@ -247,16 +247,16 @@ def assign_moving_average(variable, value, decay, zero_debias=True, name=None):
       return unbiased_ema_delta
 
   def update_fn(v, value, decay=decay):
-    decay = tf.convert_to_tensor(1.0 - decay, name="decay")
+    decay = tf.convert_to_tensor(value=1.0 - decay, name="decay")
     if decay.dtype != v.dtype.base_dtype:
       decay = tf.cast(decay, v.dtype.base_dtype)
     if zero_debias:
       update_delta = _zero_debias(v, value, decay)
     else:
       update_delta = (v - value) * decay
-    return tf.assign_sub(v, update_delta, name=scope)
+    return tf.compat.v1.assign_sub(v, update_delta, name=scope)
 
-  with tf.name_scope(name, "AssignMovingAvg",
+  with tf.compat.v1.name_scope(name, "AssignMovingAvg",
                       [variable, value, decay]) as scope:
     tower_context = distribution_strategy_context.get_tower_context()
     if tower_context:
@@ -300,7 +300,7 @@ class ExponentialMovingAverage(object):
     """
     # TODO(touts): op_scope
     if var_list is None:
-      var_list = tf.trainable_variables()
+      var_list = tf.compat.v1.trainable_variables()
     zero_debias_true = set()  # set of vars to set `zero_debias=True`
 
     def _create_slots(var_list):
@@ -321,17 +321,17 @@ class ExponentialMovingAverage(object):
             except:
               prefix = var.op.name
             
-            with tf.variable_scope(None, prefix + "/" + self.name):
+            with tf.compat.v1.variable_scope(None, prefix + "/" + self.name):
               if isinstance(var, tf.Variable):
-                avg = tf.get_variable("",
+                avg = tf.compat.v1.get_variable("",
                     initailizer=var.initialized_value(),
                     trainable=False)
                 # NOTE(mrry): We only add `tf.Variable` objects to the
                 # `MOVING_AVERAGE_VARIABLES` collection.
-                tf.add_to_collection(tf.GraphKeys.MOVING_AVERAGE_VARIABLES, var)
+                tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.MOVING_AVERAGE_VARIABLES, var)
               else:
-                avg = tf.get_variable("",
-                    initializer=tf.zeros_initializer(),
+                avg = tf.compat.v1.get_variable("",
+                    initializer=tf.compat.v1.zeros_initializer(),
                     shape=var.get_shape(),
                     dtype=var.dtype)
                 if self._zero_debias:
@@ -340,8 +340,8 @@ class ExponentialMovingAverage(object):
 
     _create_slots(var_list)
 
-    with tf.name_scope(self.name) as scope:
-      decay = tf.convert_to_tensor(self._decay, name="decay")
+    with tf.compat.v1.name_scope(self.name) as scope:
+      decay = tf.convert_to_tensor(value=self._decay, name="decay")
       if self._num_updates is not None:
         num_updates = tf.cast(self._num_updates,
                                     tf.float32,
@@ -361,7 +361,7 @@ class ExponentialMovingAverage(object):
     return self._averages.get(var, None)
 
 
-class MovingAverageOptimizer(tf.train.Optimizer):
+class MovingAverageOptimizer(tf.compat.v1.train.Optimizer):
   def __init__(self, opt, average_decay=0.9999, num_updates=None,
                sequential_update=True):
     """Construct a new MovingAverageOptimizer.
@@ -399,7 +399,7 @@ class MovingAverageOptimizer(tf.train.Optimizer):
       raise RuntimeError('Must call apply_gradients or minimize before '
                          'creating the swapping_saver')
     if var_list is None:
-      var_list = tf.global_variables()
+      var_list = tf.compat.v1.global_variables()
     v_name_to_tensor = {v.op.name: v for v in var_list}
 
     # Now swap variables and moving averages
@@ -417,4 +417,4 @@ class MovingAverageOptimizer(tf.train.Optimizer):
       swapped_var_list[v_name] = v
 
     # Build the swapping saver.
-    return tf.train.Saver(swapped_var_list, name=name, **kwargs)
+    return tf.compat.v1.train.Saver(swapped_var_list, name=name, **kwargs)

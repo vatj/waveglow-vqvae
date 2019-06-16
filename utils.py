@@ -27,7 +27,7 @@ def parse_args(description=None):
 def check_git_hash(model_dir):
   source_dir = os.path.dirname(os.path.realpath(__file__))
   if not os.path.exists(os.path.join(source_dir, ".git")):
-      tf.logging.warn("{} is not a git repository, therefore hash value comparison will be ignored.")
+      tf.compat.v1.logging.warn("{} is not a git repository, therefore hash value comparison will be ignored.")
       return
 
   cur_hash = subprocess.getoutput("git rev-parse HEAD")
@@ -36,7 +36,7 @@ def check_git_hash(model_dir):
   if os.path.exists(path):
     saved_hash = open(path).read()
     if saved_hash != cur_hash:
-      tf.logging.warn("git hash values are different. {}(saved) != {}(current)".format(
+      tf.compat.v1.logging.warn("git hash values are different. {}(saved) != {}(current)".format(
           saved_hash[:8], cur_hash[:8]))
   else:
     open(path, "w").write(cur_hash)

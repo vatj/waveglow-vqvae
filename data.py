@@ -16,7 +16,7 @@ class InputPipeline:
 
   def __call__(self):
     hparams = self.hparams
-    with tf.name_scope("input_pipeline"):
+    with tf.compat.v1.name_scope("input_pipeline"):
       if self.mode != tf.estimator.ModeKeys.PREDICT:
         record_files = os.path.join(hparams.tfr_dir, 
             "%s_%s_*_of_*.tfrecord" % (hparams.tfr_prefix, self.mode))
@@ -39,14 +39,14 @@ class InputPipeline:
     feature = {}
     for k in hparams.load_features:
       if k in ["wav", "mel"]:
-        feature[k] = tf.FixedLenFeature([], tf.string)
+        feature[k] = tf.io.FixedLenFeature([], tf.string)
       elif k == "txt":
-        feature[k] = tf.VarLenFeature(tf.int64)
+        feature[k] = tf.io.VarLenFeature(tf.int64)
       else:
-        feature[k] = tf.FixedLenFeature([], tf.int64)
+        feature[k] = tf.io.FixedLenFeature([], tf.int64)
 
     #parse
-    features = tf.parse_single_example(example, features=feature)
+    features = tf.io.parse_single_example(serialized=example, features=feature)
 
     # sparse to dense for text
     if features.get("txt") is not None:
@@ -55,18 +55,18 @@ class InputPipeline:
     assert hparams.max_input_length % hparams.hop_size == 0, \
         "max_input_length should be a multiple of hop_size"
     # reshape
-    wav = tf.decode_raw(features["wav"], tf.float32)
+    wav = tf.io.decode_raw(features["wav"], tf.float32)
     wav = tf.expand_dims(wav, -1)
     features["wav"] = wav # assign
-    wav_len = tf.size(wav)
+    wav_len = tf.size(input=wav)
     if features.get("mel") is not None:
-      mel = tf.decode_raw(features["mel"], tf.float32)
+      mel = tf.io.decode_raw(features["mel"], tf.float32)
       mel = tf.reshape(mel, [wav_len // hparams.hop_size, hparams.mel_channels])
       features["mel"] = mel # assign
 
     if self.mode == tf.estimator.ModeKeys.TRAIN:
       # wave segment
-      str_idx_mel = tf.random_uniform((), 0, wav_len-hparams.max_input_length, tf.int32) // hparams.hop_size
+      str_idx_mel = tf.random.uniform((), 0, wav_len-hparams.max_input_length, tf.int32) // hparams.hop_size
       str_idx_wav = str_idx_mel * hparams.hop_size
       seg_len_wav = hparams.max_input_length
       wav_seg = wav[str_idx_wav:str_idx_wav + seg_len_wav]
@@ -100,11 +100,11 @@ if __name__ == "__main__":
   load_vocab(hparams)
 
   # Save tfrecords
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.enable_eager_execution()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.enable_eager_execution()
 
   ds = InputPipeline(hparams, tf.estimator.ModeKeys.TRAIN)()
-  itr = ds.make_one_shot_iterator()
+  itr = tf.compat.v1.data.make_one_shot_iterator(ds)
 
   itr.get_next()
   t_str = time.time()

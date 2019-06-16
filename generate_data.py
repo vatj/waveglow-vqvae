@@ -38,9 +38,9 @@ def save_tfrecords(save_dir, save_prefix, data, wav_load_fn, txt_encode_fn, n_sh
   """
   n_data = math.ceil(len(data) / n_shards)
   for idx_shard in range(n_shards):
-    tf.logging.info("Save shards: %d of %d" % (idx_shard, n_shards))
+    tf.compat.v1.logging.info("Save shards: %d of %d" % (idx_shard, n_shards))
     save_path = os.path.join(save_dir, save_prefix + ("_%04d_of_%04d.tfrecord" % (idx_shard, n_shards)))
-    with tf.python_io.TFRecordWriter(save_path) as writer:
+    with tf.io.TFRecordWriter(save_path) as writer:
       for fname, txt, sid in data[n_data*idx_shard:n_data*(idx_shard + 1)]:
         # load wav
         wav, mel = wav_load_fn(fname)
@@ -88,7 +88,7 @@ def load_wav(fname, hparams):
       hparams.fmax)
   
   mel = tf.tensordot(magnitude, linear_to_mel_weight_matrix, 1)
-  mel = tf.log(tf.maximum(mel, 1e-5)) # log scaling with clamping
+  mel = tf.math.log(tf.maximum(mel, 1e-5)) # log scaling with clamping
   mel = mel.numpy()[0] # For visualisation, use mel.T[::-1]
 
   assert len(audio_norm) / hparams.hop_size == len(mel), \
@@ -152,6 +152,6 @@ if __name__ == "__main__":
   data.load_vocab(hparams)
   
   # Save tfrecords
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.enable_eager_execution()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.enable_eager_execution()
   audio2tfr(hparams)
